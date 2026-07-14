@@ -1,0 +1,802 @@
+   200→    options: {
+   201→      data: {
+   202→        full_name: fullName,
+   203→      },
+   204→    },
+   205→  });
+   206→
+   207→  if (error) {
+   208→    return { error: error.message };
+   209→  }
+   210→
+   211→  return { success: true };
+   212→}
+   213→
+   214→export async function loginWithEmail(email: string) {
+   215→  const supabase = await createClient();
+   216→
+   217→  const { error } = await supabase.auth.signInWithOtp({
+   218→    email,
+   219→  });
+   220→
+   221→  if (error) {
+   222→    return { error: error.message };
+   223→  }
+   224→
+   225→  return { success: true };
+   226→}
+   227→
+   228→export async function verifyCode(email: string, token: string) {
+   229→  const supabase = await createClient();
+   230→
+   231→  const { error } = await supabase.auth.verifyOtp({
+   232→    email,
+   233→    token,
+   234→    type: "email",
+   235→  });
+   236→
+   237→  if (error) {
+   238→    return { error: error.message };
+   239→  }
+   240→
+   241→  return { success: true };
+   242→}
+   243→
+   244→export async function resendCode(email: string) {
+   245→  const supabase = await createClient();
+   246→
+   247→  const { error } = await supabase.auth.signInWithOtp({
+   248→    email,
+   249→  });
+   250→
+   251→  if (error) {
+   252→    return { error: error.message };
+   253→  }
+   254→
+   255→  return { success: true };
+   256→}
+   257→
+   258→export async function logout() {
+   259→  const supabase = await createClient();
+   260→  await supabase.auth.signOut();
+   261→  return { success: true };
+   262→}
+   263→````
+   264→
+   265→## File: src/actions/cart.ts
+   266→````typescript
+   267→"use server";
+   268→
+   269→import { createClient } from "@/lib/supabase/server";
+   270→import { revalidatePath } from "next/cache";
+   271→
+   272→export async function addToCart(courseId: string) {
+   273→  const supabase = await createClient();
+   274→  const { data: { user } } = await supabase.auth.getUser();
+   275→
+   276→  if (!user) {
+   277→    return { error: "You must be logged in" };
+   278→  }
+   279→
+   280→  const { data: enrollment } = await supabase
+   281→    .from("enrollments")
+   282→    .select("id")
+   283→    .eq("user_id", user.id)
+   284→    .eq("course_id", courseId)
+   285→    .single();
+   286→
+   287→  if (enrollment) {
+   288→    return { error: "You already purchased this course" };
+   289→  }
+   290→
+   291→  const { data: existingCartItem } = await supabase
+   292→    .from("cart_items")
+   293→    .select("id")
+   294→    .eq("user_id", user.id)
+   295→    .eq("course_id", courseId)
+   296→    .single();
+   297→
+   298→  if (existingCartItem) {
+   299→    return { error: "Already in cart" };
+   300→  }
+   301→
+   302→  const { error } = await supabase
+   303→    .from("cart_items")
+   304→    .insert({ user_id: user.id, course_id: courseId });
+   305→
+   306→  if (error) {
+   307→    return { error: error.message };
+   308→  }
+   309→
+   310→  revalidatePath("/cart");
+   311→  return { success: true };
+   312→}
+   313→
+   314→export async function removeFromCart(cartItemId: string) {
+   315→  const supabase = await createClient();
+   316→  const { data: { user } } = await supabase.auth.getUser();
+   317→
+   318→  if (!user) {
+   319→    return { error: "You must be logged in" };
+   320→  }
+   321→
+   322→  const { error } = await supabase
+   323→    .from("cart_items")
+   324→    .delete()
+   325→    .eq("id", cartItemId)
+   326→    .eq("user_id", user.id);
+   327→
+   328→  if (error) {
+   329→    return { error: error.message };
+   330→  }
+   331→
+   332→  revalidatePath("/cart");
+   333→  return { success: true };
+   334→}
+   335→````
+   336→
+   337→## File: src/app/(auth)/login/page.tsx
+   338→````typescript
+   339→"use client";
+   340→
+   341→import { useState } from "react";
+   342→import { createClient } from "@/lib/supabase/client";
+   343→import { Button } from "@/components/ui/button";
+   344→import { Input } from "@/components/ui/input";
+   345→import { Label } from "@/components/ui/label";
+   346→import Link from "next/link";
+   347→
+   348→export default function LoginPage() {
+   349→  const [email, setEmail] = useState("");
+   350→  const [error, setError] = useState("");
+   351→  const [loading, setLoading] = useState(false);
+   352→
+   353→  async function handleSubmit(e: React.FormEvent) {
+   354→    e.preventDefault();
+   355→    setError("");
+   356→    setLoading(true);
+   357→
+   358→    const supabase = createClient();
+   359→    const { error } = await supabase.auth.signInWithOtp({
+   360→      email: email.trim(),
+   361→    });
+   362→
+   363→    setLoading(false);
+   364→
+   365→    if (error) {
+   366→      setError(error.message);
+   367→    } else {
+   368→      window.location.href = `/verify-code?email=${encodeURIComponent(email.trim())}`;
+   369→    }
+   370→  }
+   371→
+   372→  function handleGoogleSignIn() {
+   373→    const supabase = createClient();
+   374→    supabase.auth.signInWithOAuth({
+   375→      provider: "google",
+   376→      options: { redirectTo: `${window.location.origin}/callback` },
+   377→    });
+   378→  }
+   379→
+   380→  return (
+   381→    <div className="space-y-6">
+   382→      <div className="text-center">
+   383→        <h1 className="text-xl font-bold">Welcome Back</h1>
+   384→      </div>
+   385→      <form onSubmit={handleSubmit} className="space-y-4">
+   386→        <div className="space-y-2">
+   387→          <Label htmlFor="email">Email</Label>
+   388→          <Input id="email" type="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} required />
+   389→        </div>
+   390→        {error && <p className="text-sm text-destructive">{error}</p>}
+   391→        <Button type="submit" className="w-full" loading={loading}>Continue</Button>
+   392→      </form>
+   393→      <div className="relative">
+   394→        <div className="absolute inset-0 flex items-center"><span className="w-full border-t border-border" /></div>
+   395→        <div className="relative flex justify-center text-xs uppercase"><span className="bg-card px-2 text-muted-foreground">Or</span></div>
+   396→      </div>
+   397→      <Button type="button" variant="outline" className="w-full" onClick={handleGoogleSignIn}>
+   398→        <svg className="mr-2 h-4 w-4" viewBox="0 0 24 24">
+   399→          <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4" />
+   400→          <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
+   401→          <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05" />
+   402→          <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" />
+   403→        </svg>
+   404→        Continue with Google
+   405→      </Button>
+   406→      <p className="text-center text-sm text-muted-foreground">Don&apos;t have an account? <Link href="/sign-up" className="text-primary hover:underline">Sign up</Link></p>
+   407→    </div>
+   408→  );
+   409→}
+   410→````
+   411→
+   412→## File: src/app/(auth)/sign-up/page.tsx
+   413→````typescript
+   414→"use client";
+   415→
+   416→import { useState } from "react";
+   417→import { createClient } from "@/lib/supabase/client";
+   418→import { Button } from "@/components/ui/button";
+   419→import { Input } from "@/components/ui/input";
+   420→import { Label } from "@/components/ui/label";
+   421→import Link from "next/link";
+   422→
+   423→export default function SignUpPage() {
+   424→  const [fullName, setFullName] = useState("");
+   425→  const [email, setEmail] = useState("");
+   426→  const [error, setError] = useState("");
+   427→  const [loading, setLoading] = useState(false);
+   428→
+   429→  async function handleSubmit(e: React.FormEvent) {
+   430→    e.preventDefault();
+   431→    setError("");
+   432→    setLoading(true);
+   433→
+   434→    if (fullName.trim().length < 2) {
+   435→      setError("Full name must be at least 2 characters");
+   436→      setLoading(false);
+   437→      return;
+   438→    }
+   439→
+   440→    const supabase = createClient();
+   441→    const { error } = await supabase.auth.signInWithOtp({
+   442→      email: email.trim(),
+   443→      options: {
+   444→        data: { full_name: fullName.trim() },
+   445→      },
+   446→    });
+   447→
+   448→    setLoading(false);
+   449→
+   450→    if (error) {
+   451→      setError(error.message);
+   452→    } else {
+   453→      window.location.href = `/verify-code?email=${encodeURIComponent(email.trim())}`;
+   454→    }
+   455→  }
+   456→
+   457→  function handleGoogleSignIn() {
+   458→    const supabase = createClient();
+   459→    supabase.auth.signInWithOAuth({
+   460→      provider: "google",
+   461→      options: { redirectTo: `${window.location.origin}/callback` },
+   462→    });
+   463→  }
+   464→
+   465→  return (
+   466→    <div className="space-y-6">
+   467→      <div className="text-center">
+   468→        <h1 className="text-xl font-bold">Create Account</h1>
+   469→      </div>
+   470→      <form onSubmit={handleSubmit} className="space-y-4">
+   471→        <div className="space-y-2">
+   472→          <Label htmlFor="fullName">Full Name</Label>
+   473→          <Input id="fullName" type="text" placeholder="John Doe" value={fullName} onChange={(e) => setFullName(e.target.value)} required />
+   474→        </div>
+   475→        <div className="space-y-2">
+   476→          <Label htmlFor="email">Email</Label>
+   477→          <Input id="email" type="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} required />
+   478→        </div>
+   479→        {error && <p className="text-sm text-destructive">{error}</p>}
+   480→        <Button type="submit" className="w-full" loading={loading}>Continue</Button>
+   481→      </form>
+   482→      <div className="relative">
+   483→        <div className="absolute inset-0 flex items-center"><span className="w-full border-t border-border" /></div>
+   484→        <div className="relative flex justify-center text-xs uppercase"><span className="bg-card px-2 text-muted-foreground">Or</span></div>
+   485→      </div>
+   486→      <Button type="button" variant="outline" className="w-full" onClick={handleGoogleSignIn}>
+   487→        <svg className="mr-2 h-4 w-4" viewBox="0 0 24 24">
+   488→          <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4" />
+   489→          <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
+   490→          <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05" />
+   491→          <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" />
+   492→        </svg>
+   493→        Continue with Google
+   494→      </Button>
+   495→      <p className="text-center text-sm text-muted-foreground">Already have an account? <Link href="/login" className="text-primary hover:underline">Log in</Link></p>
+   496→    </div>
+   497→  );
+   498→}
+   499→````
+   500→
+   501→## File: src/app/(auth)/verify-code/page.tsx
+   502→````typescript
+   503→"use client";
+   504→
+   505→import { useState, useRef, useEffect } from "react";
+   506→import { useSearchParams } from "next/navigation";
+   507→import { createClient } from "@/lib/supabase/client";
+   508→import { Button } from "@/components/ui/button";
+   509→
+   510→export default function VerifyCodePage() {
+   511→  const searchParams = useSearchParams();
+   512→  const email = searchParams.get("email") || "";
+   513→  const [digits, setDigits] = useState<string[]>(["", "", "", "", "", ""]);
+   514→  const [error, setError] = useState("");
+   515→  const [loading, setLoading] = useState(false);
+   516→  const [resendLoading, setResendLoading] = useState(false);
+   517→  const [countdown, setCountdown] = useState(0);
+   518→  const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+   519→
+   520→  useEffect(() => { inputRefs.current[0]?.focus(); }, []);
+   521→
+   522→  useEffect(() => {
+   523→    if (countdown > 0) {
+   524→      const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
+   525→      return () => clearTimeout(timer);
+   526→    }
+   527→  }, [countdown]);
+   528→
+   529→  function handleChange(index: number, value: string) {
+   530→    if (!/^\d*$/.test(value)) return;
+   531→    const newDigits = [...digits];
+   532→    newDigits[index] = value.slice(-1);
+   533→    setDigits(newDigits);
+   534→    setError("");
+   535→    if (value && index < 5) inputRefs.current[index + 1]?.focus();
+   536→  }
+   537→
+   538→  function handleKeyDown(index: number, e: React.KeyboardEvent) {
+   539→    if (e.key === "Backspace" && !digits[index] && index > 0) inputRefs.current[index - 1]?.focus();
+   540→  }
+   541→
+   542→  function handlePaste(e: React.ClipboardEvent) {
+   543→    e.preventDefault();
+   544→    const pastedData = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6);
+   545→    const newDigits = [...digits];
+   546→    for (let i = 0; i < pastedData.length; i++) newDigits[i] = pastedData[i];
+   547→    setDigits(newDigits);
+   548→    inputRefs.current[Math.min(pastedData.length, 5)]?.focus();
+   549→  }
+   550→
+   551→  async function handleSubmit(e: React.FormEvent) {
+   552→    e.preventDefault();
+   553→    const code = digits.join("");
+   554→    if (code.length !== 6) { setError("Please enter all 6 digits"); return; }
+   555→    setError("");
+   556→    setLoading(true);
+   557→
+   558→    const supabase = createClient();
+   559→    const { error } = await supabase.auth.verifyOtp({ email, token: code, type: "email" });
+   560→
+   561→    setLoading(false);
+   562→
+   563→    if (error) {
+   564→      setError(error.message);
+   565→    } else {
+   566→      window.location.href = "/";
+   567→    }
+   568→  }
+   569→
+   570→  async function handleResend() {
+   571→    if (countdown > 0) return;
+   572→    setResendLoading(true);
+   573→
+   574→    const supabase = createClient();
+   575→    const { error } = await supabase.auth.signInWithOtp({ email });
+   576→
+   577→    setResendLoading(false);
+   578→
+   579→    if (error) {
+   580→      setError(error.message);
+   581→    } else {
+   582→      setCountdown(60);
+   583→      setDigits(["", "", "", "", "", ""]);
+   584→      inputRefs.current[0]?.focus();
+   585→    }
+   586→  }
+   587→
+   588→  if (!email) {
+   589→    return (
+   590→      <div className="space-y-4 text-center">
+   591→        <h1 className="text-xl font-bold">Invalid Request</h1>
+   592→        <p className="text-sm text-muted-foreground">No email provided.</p>
+   593→      </div>
+   594→    );
+   595→  }
+   596→
+   597→  return (
+   598→    <div className="space-y-6">
+   599→      <div className="text-center">
+   600→        <h1 className="text-xl font-bold">Enter Verification Code</h1>
+   601→        <p className="text-sm text-muted-foreground mt-2">
+   602→          We sent a 6-digit code to <span className="font-medium text-foreground">{email}</span>
+   603→        </p>
+   604→      </div>
+   605→      <form onSubmit={handleSubmit} className="space-y-6">
+   606→        <div className="flex justify-center gap-2" onPaste={handlePaste}>
+   607→          {digits.map((digit, index) => (
+   608→            <input
+   609→              key={index}
+   610→              ref={(el) => { inputRefs.current[index] = el; }}
+   611→              type="text"
+   612→              inputMode="numeric"
+   613→              maxLength={1}
+   614→              value={digit}
+   615→              onChange={(e) => handleChange(index, e.target.value)}
+   616→              onKeyDown={(e) => handleKeyDown(index, e)}
+   617→              className="h-12 w-12 text-center text-lg font-semibold border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary"
+   618→            />
+   619→          ))}
+   620→        </div>
+   621→        {error && <p className="text-sm text-destructive text-center">{error}</p>}
+   622→        <Button type="submit" className="w-full" loading={loading}>Continue</Button>
+   623→      </form>
+   624→      <div className="text-center">
+   625→        <Button type="button" variant="ghost" size="sm" onClick={handleResend} disabled={countdown > 0 || resendLoading} loading={resendLoading}>
+   626→          {countdown > 0 ? `Resend code in ${countdown}s` : "Resend code"}
+   627→        </Button>
+   628→      </div>
+   629→    </div>
+   630→  );
+   631→}
+   632→````
+   633→
+   634→## File: src/app/(auth)/layout.tsx
+   635→````typescript
+   636→export default function AuthLayout({
+   637→  children,
+   638→}: {
+   639→  children: React.ReactNode;
+   640→}) {
+   641→  return (
+   642→    <div className="min-h-screen flex items-center justify-center bg-muted px-4">
+   643→      <div className="w-full max-w-sm bg-card rounded-lg border border-border p-6">
+   644→        {children}
+   645→      </div>
+   646→    </div>
+   647→  );
+   648→}
+   649→````
+   650→
+   651→## File: src/app/(main)/cart/page.tsx
+   652→````typescript
+   653→import { createClient } from "@/lib/supabase/server";
+   654→import { RemoveFromCartButton } from "./remove-from-cart-button";
+   655→import { formatRupiah } from "@/lib/utils";
+   656→import Link from "next/link";
+   657→import { redirect } from "next/navigation";
+   658→
+   659→export default async function CartPage() {
+   660→  const supabase = await createClient();
+   661→  const { data: { user } } = await supabase.auth.getUser();
+   662→
+   663→  if (!user) {
+   664→    redirect("/login");
+   665→  }
+   666→
+   667→  const { data: cartItems } = await supabase
+   668→    .from("cart_items")
+   669→    .select(
+   670→      `
+   671→      id,
+   672→      added_at,
+   673→      courses!cart_items_course_id_fkey(
+   674→        id,
+   675→        title,
+   676→        thumbnail_url,
+   677→        price,
+   678→        instructor_id,
+   679→        profiles!courses_instructor_id_fkey(full_name)
+   680→      )
+   681→    `
+   682→    )
+   683→    .eq("user_id", user.id)
+   684→    .order("added_at", { ascending: false });
+   685→
+   686→  const items = (cartItems || [])
+   687→    .map((item) => {
+   688→      const c = item.courses as unknown as {
+   689→        id: string;
+   690→        title: string;
+   691→        thumbnail_url: string | null;
+   692→        price: number;
+   693→        instructor_id: string;
+   694→        profiles: { full_name: string } | null;
+   695→      } | null;
+   696→
+   697→      if (!c) return null;
+   698→
+   699→      return {
+   700→        cartItemId: item.id as string,
+   701→        courseId: c.id,
+   702→        title: c.title,
+   703→        thumbnail_url: c.thumbnail_url,
+   704→        price: c.price,
+   705→        instructor_name: c.profiles?.full_name || "Instructor",
+   706→      };
+   707→    })
+   708→    .filter(Boolean) as {
+   709→      cartItemId: string;
+   710→      courseId: string;
+   711→      title: string;
+   712→      thumbnail_url: string | null;
+   713→      price: number;
+   714→      instructor_name: string;
+   715→    }[];
+   716→
+   717→  const totalPrice = items.reduce((sum, item) => sum + item.price, 0);
+   718→
+   719→  return (
+   720→    <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 py-10">
+   721→      <h1 className="text-2xl font-bold mb-8">Shopping Cart</h1>
+   722→
+   723→      {items.length > 0 ? (
+   724→        <div className="space-y-6">
+   725→          {/* Cart Items List */}
+   726→          <div className="space-y-4">
+   727→            {items.map((item) => (
+   728→              <div
+   729→                key={item.cartItemId}
+   730→                className="flex gap-4 p-4 border border-border rounded-lg bg-card"
+   731→              >
+   732→                {/* Thumbnail */}
+   733→                <div className="w-32 h-20 shrink-0 bg-muted rounded-md overflow-hidden relative">
+   734→                  {item.thumbnail_url ? (
+   735→                    // eslint-disable-next-line @next/next/no-img-element
+   736→                    <img
+   737→                      src={item.thumbnail_url}
+   738→                      alt={item.title}
+   739→                      className="w-full h-full object-cover"
+   740→                    />
+   741→                  ) : (
+   742→                    <div className="w-full h-full flex items-center justify-center text-xs text-muted-foreground">
+   743→                      No image
+   744→                    </div>
+   745→                  )}
+   746→                </div>
+   747→
+   748→                {/* Info */}
+   749→                <div className="flex-1 min-w-0">
+   750→                  <Link
+   751→                    href={`/courses/${item.courseId}`}
+   752→                    className="font-semibold text-sm hover:text-primary line-clamp-2"
+   753→                  >
+   754→                    {item.title}
+   755→                  </Link>
+   756→                  <p className="text-xs text-muted-foreground mt-1">
+   757→                    {item.instructor_name}
+   758→                  </p>
+   759→                  <p className="text-sm font-bold mt-2">
+   760→                    {formatRupiah(item.price)}
+   761→                  </p>
+   762→                </div>
+   763→
+   764→                {/* Remove Button */}
+   765→                <div className="shrink-0 flex items-start">
+   766→                  <RemoveFromCartButton cartItemId={item.cartItemId} />
+   767→                </div>
+   768→              </div>
+   769→            ))}
+   770→          </div>
+   771→
+   772→          {/* Total & Checkout */}
+   773→          <div className="border-t border-border pt-6">
+   774→            <div className="flex items-center justify-between mb-6">
+   775→              <span className="text-lg font-semibold">Total</span>
+   776→              <span className="text-lg font-bold text-primary">
+   777→                {formatRupiah(totalPrice)}
+   778→              </span>
+   779→            </div>
+   780→            <Link
+   781→              href="/checkout"
+   782→              className="block w-full text-center h-11 leading-[2.75rem] bg-primary text-primary-foreground font-medium rounded-md hover:bg-primary/90 transition-colors"
+   783→            >
+   784→              Buy Now
+   785→            </Link>
+   786→          </div>
+   787→        </div>
+   788→      ) : (
+   789→        <div className="text-center py-20">
+   790→          <p className="text-muted-foreground">Your cart is empty.</p>
+   791→          <Link
+   792→            href="/"
+   793→            className="inline-block mt-4 text-sm text-primary hover:underline"
+   794→          >
+   795→            Browse courses
+   796→          </Link>
+   797→        </div>
+   798→      )}
+   799→    </div>
+   800→  );
+   801→}
+   802→````
+   803→
+   804→## File: src/app/(main)/cart/remove-from-cart-button.tsx
+   805→````typescript
+   806→"use client";
+   807→
+   808→import { removeFromCart } from "@/actions/cart";
+   809→import { Button } from "@/components/ui/button";
+   810→import { useTransition } from "react";
+   811→import { toast } from "sonner";
+   812→
+   813→interface RemoveFromCartButtonProps {
+   814→  cartItemId: string;
+   815→}
+   816→
+   817→export function RemoveFromCartButton({ cartItemId }: RemoveFromCartButtonProps) {
+   818→  const [isPending, startTransition] = useTransition();
+   819→
+   820→  function handleRemove() {
+   821→    startTransition(async () => {
+   822→      const result = await removeFromCart(cartItemId);
+   823→      if (result.error) {
+   824→        toast.error(result.error);
+   825→      } else {
+   826→        toast.success("Removed from cart");
+   827→      }
+   828→    });
+   829→  }
+   830→
+   831→  return (
+   832→    <Button
+   833→      variant="ghost"
+   834→      size="sm"
+   835→      onClick={handleRemove}
+   836→      disabled={isPending}
+   837→      className="text-destructive hover:text-destructive hover:bg-destructive/10"
+   838→    >
+   839→      {isPending ? "Removing..." : "Remove"}
+   840→    </Button>
+   841→  );
+   842→}
+   843→````
+   844→
+   845→## File: src/app/(main)/checkout/checkout-form.tsx
+   846→````typescript
+   847→"use client";
+   848→
+   849→import { useState } from "react";
+   850→import { Button } from "@/components/ui/button";
+   851→import { toast } from "sonner";
+   852→
+   853→const PAYMENT_METHODS = [
+   854→  { value: "BCA", label: "Virtual Account BCA" },
+   855→  { value: "BNI", label: "Virtual Account BNI" },
+   856→  { value: "BRI", label: "Virtual Account BRI" },
+   857→  { value: "MANDIRI", label: "Virtual Account Mandiri" },
+   858→  { value: "OVO", label: "E-Wallet OVO" },
+   859→  { value: "DANA", label: "E-Wallet DANA" },
+   860→  { value: "SHOPEEPAY", label: "E-Wallet ShopeePay" },
+   861→  { value: "QRIS", label: "QRIS" },
+   862→];
+   863→
+   864→interface CheckoutFormProps {
+   865→  courseIds: string[];
+   866→}
+   867→
+   868→export function CheckoutForm({ courseIds }: CheckoutFormProps) {
+   869→  const [paymentMethod, setPaymentMethod] = useState("");
+   870→  const [loading, setLoading] = useState(false);
+   871→
+   872→  async function handleSubmit(e: React.FormEvent) {
+   873→    e.preventDefault();
+   874→
+   875→    if (!paymentMethod) {
+   876→      toast.error("Please select a payment method");
+   877→      return;
+   878→    }
+   879→
+   880→    setLoading(true);
+   881→
+   882→    try {
+   883→      const res = await fetch("/api/xendit/create-invoice", {
+   884→        method: "POST",
+   885→        headers: { "Content-Type": "application/json" },
+   886→        body: JSON.stringify({
+   887→          courseIds,
+   888→          paymentMethod,
+   889→        }),
+   890→      });
+   891→
+   892→      const data = await res.json();
+   893→
+   894→      if (!res.ok) {
+   895→        toast.error(data.error || "Something went wrong");
+   896→        setLoading(false);
+   897→        return;
+   898→      }
+   899→
+   900→      // Redirect to Xendit payment page
+   901→      if (data.invoiceUrl) {
+   902→        window.location.href = data.invoiceUrl;
+   903→      } else {
+   904→        toast.error("Failed to get payment page");
+   905→        setLoading(false);
+   906→      }
+   907→    } catch {
+   908→      toast.error("Something went wrong");
+   909→      setLoading(false);
+   910→    }
+   911→  }
+   912→
+   913→  return (
+   914→    <form onSubmit={handleSubmit} className="space-y-4">
+   915→      <div>
+   916→        <h2 className="text-sm font-semibold mb-3">Payment Method</h2>
+   917→        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+   918→          {PAYMENT_METHODS.map((method) => (
+   919→            <label
+   920→              key={method.value}
+   921→              className={`flex items-center gap-3 p-3 border rounded-md cursor-pointer transition-colors ${
+   922→                paymentMethod === method.value
+   923→                  ? "border-primary bg-primary/5"
+   924→                  : "border-border bg-card hover:bg-accent"
+   925→              }`}
+   926→            >
+   927→              <input
+   928→                type="radio"
+   929→                name="paymentMethod"
+   930→                value={method.value}
+   931→                checked={paymentMethod === method.value}
+   932→                onChange={(e) => setPaymentMethod(e.target.value)}
+   933→                className="accent-primary"
+   934→              />
+   935→              <span className="text-sm">{method.label}</span>
+   936→            </label>
+   937→          ))}
+   938→        </div>
+   939→      </div>
+   940→
+   941→      <Button type="submit" className="w-full" size="lg" disabled={loading}>
+   942→        {loading ? "Processing..." : "Pay"}
+   943→      </Button>
+   944→    </form>
+   945→  );
+   946→}
+   947→````
+   948→
+   949→## File: src/app/(main)/checkout/page.tsx
+   950→````typescript
+   951→import { createClient } from "@/lib/supabase/server";
+   952→import { formatRupiah } from "@/lib/utils";
+   953→import { redirect } from "next/navigation";
+   954→import { CheckoutForm } from "./checkout-form";
+   955→
+   956→export default async function CheckoutPage({
+   957→  searchParams,
+   958→}: {
+   959→  searchParams: Promise<{ courseId?: string }>;
+   960→}) {
+   961→  const { courseId } = await searchParams;
+   962→  const supabase = await createClient();
+   963→  const { data: { user } } = await supabase.auth.getUser();
+   964→
+   965→  if (!user) {
+   966→    redirect("/login");
+   967→  }
+   968→
+   969→  let courseIds: string[] = [];
+   970→
+   971→  // If single courseId from "Buy Now" button
+   972→  if (courseId) {
+   973→    courseIds = [courseId];
+   974→  } else {
+   975→    // Otherwise get all cart items
+   976→    const { data: cartItems } = await supabase
+   977→      .from("cart_items")
+   978→      .select("course_id")
+   979→      .eq("user_id", user.id);
+   980→
+   981→    courseIds = (cartItems || []).map((item) => item.course_id);
+   982→  }
+   983→
+   984→  if (courseIds.length === 0) {
+   985→    redirect("/cart");
+   986→  }
+   987→
+   988→  // Fetch courses
+   989→  const { data: courses } = await supabase
+   990→    .from("courses")
+   991→    .select("id, title, price")
+   992→    .in("id", courseIds);
+   993→
+   994→  if (!courses || courses.length === 0) {
+   995→    redirect("/cart");
+   996→  }
+   997→
+   998→  // Check already enrolled
+   999→  const { data: existingEnrollments } = await supabase
+
+[showing lines 200-999 of 5549; use offset=1000 with limit to continue reading]
